@@ -1,3 +1,8 @@
+# About
+Simple nginx webdav node with JWT auth, based on:
+* https://github.com/kjdev/nginx-auth-jwt
+* https://github.com/arut/nginx-dav-ext-module
+
 # Basic configuration
 ```nginx
 location / {
