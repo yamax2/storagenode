@@ -5,13 +5,13 @@ Simple nginx webdav node with JWT auth, based on:
 
 # Basic configuration
 ```nginx
-# proxy_cache_path /data/nginx/cache levels=1 keys_zone=keys:10m;
+proxy_cache_path /data/nginx/cache levels=1 keys_zone=keys:10m;
 
 location / {
   auth_jwt "private" token=$arg_token;
 
-  auth_jwt_key_file http.d/key.json;
-  # auth_jwt_key_request /public_key jwks;
+  # auth_jwt_key_file http.d/key.json;
+  auth_jwt_key_request /public_key jwks;
 
   auth_jwt_require_header alg eq RS256;
   auth_jwt_phase preaccess;
@@ -22,12 +22,12 @@ location / {
   root /data;
   dav_methods PUT DELETE MKCOL COPY MOVE;
   dav_ext_methods PROPFIND OPTIONS;
+}
 
-  # location = /public_key {
-  #  internal;
-  #  proxy_cache keys;
-  #  proxy_pass https://audit.api.wallarm.com/v3/edge/portals/public_key;
-  # }
+location = /public_key {
+  internal;
+  proxy_cache keys;
+  proxy_pass https://audit.api.wallarm.com/v3/edge/portals/public_key;
 }
 ```
 ## Create JWT token
