@@ -2,6 +2,8 @@ FROM alpine AS builder
 
 WORKDIR /build
 
+COPY ngx_http_storage_node_session_start_module /build/ngx_http_storage_node_session_start_module
+
 RUN apk --no-cache upgrade && \
     apk --no-cache add \
       build-base       \
@@ -29,14 +31,17 @@ RUN nginx_opt=$(nginx -V 2>&1 | tail -1 | sed -e "s/configure arguments://" -e "
     ./configure ${nginx_opt}                 \
       --add-dynamic-module=../nginx-auth-jwt \
       --add-dynamic-module=../nginx-dav-ext-module \
+      --add-dynamic-module=../ngx_http_storage_node_session_start_module \
       --with-cc-opt='-DNGX_HTTP_HEADERS'  && \
     make                                  && \
     mkdir -p /usr/lib/nginx/modules       && \
     cp objs/ngx_http_auth_jwt_module.so   /usr/lib/nginx/modules/ && \
     cp objs/ngx_http_dav_ext_module.so    /usr/lib/nginx/modules/ && \
+    cp objs/ngx_http_storage_node_session_start_module.so /usr/lib/nginx/modules/ && \
     mkdir -p /etc/nginx/modules           && \
     echo 'load_module "/usr/lib/nginx/modules/ngx_http_auth_jwt_module.so";' > /etc/nginx/modules/auth_jwt.conf && \
     echo 'load_module "/usr/lib/nginx/modules/ngx_http_dav_ext_module.so";' > /etc/nginx/modules/dav_ext.conf   && \
+    echo 'load_module "/usr/lib/nginx/modules/ngx_http_storage_node_session_start_module.so";' > /etc/nginx/modules/storage_node_session.conf && \
     nginx -t
 
 FROM alpine
@@ -54,9 +59,11 @@ RUN apk --no-cache upgrade && \
 
 COPY --from=builder /usr/lib/nginx/modules/ngx_http_auth_jwt_module.so /usr/lib/nginx/modules/ngx_http_auth_jwt_module.so
 COPY --from=builder /usr/lib/nginx/modules/ngx_http_dav_ext_module.so /usr/lib/nginx/modules/ngx_http_dav_ext_module.so
+COPY --from=builder /usr/lib/nginx/modules/ngx_http_storage_node_session_start_module.so /usr/lib/nginx/modules/ngx_http_storage_node_session_start_module.so
 
 COPY --from=builder /etc/nginx/modules/auth_jwt.conf /etc/nginx/modules/auth_jwt.conf
 COPY --from=builder /etc/nginx/modules/dav_ext.conf /etc/nginx/modules/dav_ext.conf
+COPY --from=builder /etc/nginx/modules/storage_node_session.conf /etc/nginx/modules/storage_node_session.conf
 
 USER nginx
 CMD ["nginx", "-g", "daemon off;"]

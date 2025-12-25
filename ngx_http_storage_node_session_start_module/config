@@ -1,0 +1,7 @@
+ngx_addon_name=ngx_http_storage_node_session_start_module
+ngx_module_type=HTTP
+ngx_module_name=ngx_http_storage_node_session_start_module
+ngx_module_srcs="$ngx_addon_dir/ngx_http_storage_node_session_start_module.c"
+ngx_module_libs="-lssl -lcrypto"
+
+. auto/module
