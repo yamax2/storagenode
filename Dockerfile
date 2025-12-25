@@ -46,16 +46,18 @@ RUN nginx_opt=$(nginx -V 2>&1 | tail -1 | sed -e "s/configure arguments://" -e "
 
 FROM alpine
 
-RUN apk --no-cache upgrade && \
-    apk --no-cache add        \
-      jansson                 \
-      libxslt                 \
-      nginx                && \
+RUN apk --no-cache upgrade     && \
+    apk --no-cache add            \
+      jansson                     \
+      libxslt                     \
+      nginx                    && \
     sed \
       -e 's/^user /#user /' \
       -e 's@^error_log .*$@error_log /dev/stderr warn;@' \
       -e 's@access_log .*;$@access_log /dev/stdout main;@' \
-      -i /etc/nginx/nginx.conf
+      -i /etc/nginx/nginx.conf && \
+    mkdir -p /data/nginx/cache && \
+    chown -R nginx:nginx /data
 
 COPY --from=builder /usr/lib/nginx/modules/ngx_http_auth_jwt_module.so /usr/lib/nginx/modules/ngx_http_auth_jwt_module.so
 COPY --from=builder /usr/lib/nginx/modules/ngx_http_dav_ext_module.so /usr/lib/nginx/modules/ngx_http_dav_ext_module.so
@@ -64,6 +66,8 @@ COPY --from=builder /usr/lib/nginx/modules/ngx_http_storage_node_session_start_m
 COPY --from=builder /etc/nginx/modules/auth_jwt.conf /etc/nginx/modules/auth_jwt.conf
 COPY --from=builder /etc/nginx/modules/dav_ext.conf /etc/nginx/modules/dav_ext.conf
 COPY --from=builder /etc/nginx/modules/storage_node_session.conf /etc/nginx/modules/storage_node_session.conf
+
+COPY default.conf /etc/nginx/http.d/default.conf
 
 USER nginx
 CMD ["nginx", "-g", "daemon off;"]

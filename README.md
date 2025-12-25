@@ -2,34 +2,8 @@
 Simple nginx webdav node with JWT auth, based on:
 * https://github.com/kjdev/nginx-auth-jwt
 * https://github.com/arut/nginx-dav-ext-module
+* custom module for sessions
 
-# Basic configuration
-```nginx
-proxy_cache_path /data/nginx/cache levels=1 keys_zone=keys:10m;
-
-location / {
-  auth_jwt "private" token=$arg_token;
-
-  # auth_jwt_key_file http.d/key.json;
-  auth_jwt_key_request /public_key jwks;
-
-  auth_jwt_require_header alg eq RS256;
-  auth_jwt_phase preaccess;
-
-  auth_jwt_require_claim method eq json="$request_method";
-  auth_jwt_require_claim uri eq json="$uri";
-
-  root /data;
-  dav_methods PUT DELETE MKCOL COPY MOVE;
-  dav_ext_methods PROPFIND OPTIONS;
-}
-
-location = /public_key {
-  internal;
-  proxy_cache keys;
-  proxy_pass https://audit.api.wallarm.com/v3/edge/portals/public_key;
-}
-```
 ## Create JWT token
 ```ruby
 jwk = App.config.dig(:secure_edge, :telemetry_portals, :jwk)
@@ -116,4 +90,12 @@ response:
 </D:propstat>
 </D:response>
 </D:multistatus>
+```
+
+## Key generation and start
+```bash
+mkdir -p keys
+openssl genrsa -out keys/node1.pem 2048
+./jwks.sh keys/node.pem > keys/node.jwks
+docker run --rm -d -p 8082:80 -v $PWD/keys:/etc/nginx/keys zozo
 ```
