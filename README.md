@@ -12,25 +12,68 @@ Based on:
 * [nginx-dav-ext-module](https://github.com/arut/nginx-dav-ext-module) - WebDAV protocol
 * `ngx_http_storage_node_session_start_module` - custom module for RS256 session cookies
 
-# Operations
-## Create a dir
-```sh
-curl -X MKCOL 'http://localhost:8080/test/dir1/?token=...
-```
-(not recursively)
+# Service endpoint
 
-## Delete a file/dir
-```sh
-curl -X DELETE 'http://localhost:8080/test/dir1/?token=...
-(with backshash at the end for directories)
+## Authentication
+The `/service/` endpoint requires a JWT token in the `X-Session-Token` header. The token must be RS256-signed and contain:
+
+| Claim | Description | Example |
+|-------|-------------|---------|
+| `method` | HTTP method being performed | `"PUT"`, `"DELETE"`, `"MKCOL"` |
+| `uri` | Full request URI | `"/service/dir1/file.txt"` |
+| `exp` | Expiration timestamp (Unix) | `1735084800` |
+
+## Generate JWT (Ruby)
+```ruby
+require 'jwt'
+require 'json'
+
+jwk_data = JSON.parse(File.read('keys/node.jwks'))
+jwk = JWT::JWK.new(jwk_data['keys'].first)
+
+payload = {
+  'method' => 'PUT',
+  'uri' => '/service/myfile.txt',
+  'exp' => Time.now.to_i + 60
+}
+
+token = JWT.encode(payload, jwk.signing_key, 'RS256', kid: jwk[:kid])
 ```
-## Put a file
-```sh
-curl -X PUT 'http://localhost:8080/test/dir1/test.txt?token=...' -T ./test.txt
+
+Using JWK from config (some of my apps):
+```ruby
+jwk = App.config.dig(:secure_edge, :telemetry_portals, :jwk)
+payload = {'method' => 'DELETE', 'uri' => '/service/dir1/', 'exp' => Time.now.to_i + 60}
+puts JWT.encode(payload, jwk.signing_key, jwk[:alg], kid: jwk[:kid])
 ```
-## Get file props
+
+## Operations
+
+### Create a directory
 ```sh
-curl -X PROPFIND 'http://localhost:8080/test/dir1/test.txt?token=...'
+curl -X MKCOL 'http://localhost:8080/service/dir1/' \
+  -H "X-Session-Token: $TOKEN"
+```
+Note: not recursive, parent must exist
+
+### Delete a file/dir
+```sh
+curl -X DELETE 'http://localhost:8080/service/dir1/' \
+  -H "X-Session-Token: $TOKEN"
+```
+Note: use trailing slash for directories
+
+### Upload a file
+```sh
+curl -X PUT 'http://localhost:8080/service/dir1/test.txt' \
+  -H "X-Session-Token: $TOKEN" \
+  -T ./test.txt
+```
+
+### Get file properties
+```sh
+curl -X PROPFIND 'http://localhost:8080/service/dir1/test.txt' \
+  -H "X-Session-Token: $TOKEN"
 ```
 response:
 ```xml
@@ -53,9 +96,10 @@ response:
 </D:response>
 </D:multistatus>
 ```
-## List files
+### List files
 ```sh
-curl -X PROPFIND -H 'Depth: 1' 'http://localhost:8080/test/dir1?token=...'
+curl -X PROPFIND -H 'Depth: 1' 'http://localhost:8080/service/dir1/' \
+  -H "X-Session-Token: $TOKEN"
 ```
 response:
 ```xml
@@ -93,19 +137,33 @@ response:
 </D:multistatus>
 ```
 
-# Key generation and usage
+### Start a session
+Issues a 24-hour session cookie for `/data/` access:
+```sh
+curl -X GET 'http://localhost:8080/service/start' \
+  -H "X-Session-Token: $TOKEN" \
+  -c cookies.txt
+```
+The response sets `storagesession` cookie signed with the node's private key.
 
-## Create JWT token
-```ruby
-jwk = App.config.dig(:secure_edge, :telemetry_portals, :jwk)
-payload = {'method' => 'DELETE', 'uri' => '/test/dir1/', 'exp' => Time.now.to_i + 60}
-puts JWT.encode(payload, jwk.signing_key, jwk[:alg], kid: jwk[:kid])
+# Data endpoint
+
+Read-only access using session cookie (no per-request JWT needed):
+
+```sh
+# Using cookie from /service/start
+curl 'http://localhost:8080/data/dir1/test.txt' -b cookies.txt
+
+# Or in browser after session start - cookie is HttpOnly
 ```
 
-## Container start
+# Setup
+
+## Generate keys and start container
 ```bash
 mkdir -p keys
-openssl genrsa -out keys/node1.pem 2048
+openssl genrsa -out keys/node.pem 2048
 ./jwks.sh keys/node.pem > keys/node.jwks
-docker run --rm -d -p 8082:80 -v $PWD/keys:/etc/nginx/keys ...
+docker build -t storagenode .
+docker run --rm -d -p 8080:80 -v $PWD/keys:/etc/nginx/keys storagenode
 ```

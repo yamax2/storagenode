@@ -56,7 +56,7 @@ RUN apk --no-cache upgrade     && \
       -e 's@^error_log .*$@error_log /dev/stderr warn;@' \
       -e 's@access_log .*;$@access_log /dev/stdout main;@' \
       -i /etc/nginx/nginx.conf && \
-    mkdir -p /data/nginx/cache && \
+    mkdir -p /data/nginx/cache /data/files && \
     chown -R nginx:nginx /data
 
 COPY --from=builder /usr/lib/nginx/modules/ngx_http_auth_jwt_module.so /usr/lib/nginx/modules/ngx_http_auth_jwt_module.so
