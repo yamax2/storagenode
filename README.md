@@ -1,15 +1,16 @@
 # About
-Simple nginx webdav node with JWT auth, based on:
-* https://github.com/kjdev/nginx-auth-jwt
-* https://github.com/arut/nginx-dav-ext-module
-* custom module for sessions
+Containerized Nginx-based WebDAV file server with dual-layer JWT authentication.
 
-## Create JWT token
-```ruby
-jwk = App.config.dig(:secure_edge, :telemetry_portals, :jwk)
-payload = {'method' => 'DELETE', 'uri' => '/test/dir1/', 'exp' => Time.now.to_i + 60}
-puts JWT.encode(payload, jwk.signing_key, jwk[:alg], kid: jwk[:kid])
-```
+| `/service/*` | `/data/*` |
+|--------------|-----------|
+| File operations (PUT/DELETE/MKCOL) | Read-only access (GET/HEAD) |
+| External JWT auth (`X-Session-Token` header) | Session cookie auth |
+| `/service/start` issues 24h session cookie | Uses session cookie |
+
+Based on:
+* [nginx-auth-jwt](https://github.com/kjdev/nginx-auth-jwt) - JWT validation
+* [nginx-dav-ext-module](https://github.com/arut/nginx-dav-ext-module) - WebDAV protocol
+* `ngx_http_storage_node_session_start_module` - custom module for RS256 session cookies
 
 # Operations
 ## Create a dir
@@ -92,10 +93,19 @@ response:
 </D:multistatus>
 ```
 
-## Key generation and start
+# Key generation and usage
+
+## Create JWT token
+```ruby
+jwk = App.config.dig(:secure_edge, :telemetry_portals, :jwk)
+payload = {'method' => 'DELETE', 'uri' => '/test/dir1/', 'exp' => Time.now.to_i + 60}
+puts JWT.encode(payload, jwk.signing_key, jwk[:alg], kid: jwk[:kid])
+```
+
+## Container start
 ```bash
 mkdir -p keys
 openssl genrsa -out keys/node1.pem 2048
 ./jwks.sh keys/node.pem > keys/node.jwks
-docker run --rm -d -p 8082:80 -v $PWD/keys:/etc/nginx/keys zozo
+docker run --rm -d -p 8082:80 -v $PWD/keys:/etc/nginx/keys ...
 ```
