@@ -161,9 +161,7 @@ curl 'http://localhost:8080/data/dir1/test.txt' -b cookies.txt
 
 ## Generate keys and start container
 ```bash
-mkdir -p keys
-openssl genrsa -out keys/node.pem 2048
-./jwks.sh keys/node.pem > keys/node.jwks
-docker build -t storagenode .
-docker run --rm -d -p 8080:80 -v $PWD/keys:/etc/nginx/keys storagenode
+docker build -t yamax2/storagenode .
+./gen_keys_example.sh
+docker-compose up -d
 ```

@@ -1,0 +1,22 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: ./example/Dockerfile
+    volumes:
+      - ./keys:/keys
+    entrypoint:
+      - "/app"
+      - "-key"
+      - "/keys/application.pem"
+
+  node:
+    build:
+      context: .
+    ports:
+      - "8443:443"
+    volumes:
+      - ./keys:/etc/nginx/keys
+      - ./imgs:/data/files
+    depends_on:
+      - app

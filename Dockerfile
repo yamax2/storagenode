@@ -67,7 +67,8 @@ COPY --from=builder /etc/nginx/modules/auth_jwt.conf /etc/nginx/modules/auth_jwt
 COPY --from=builder /etc/nginx/modules/dav_ext.conf /etc/nginx/modules/dav_ext.conf
 COPY --from=builder /etc/nginx/modules/storage_node_session.conf /etc/nginx/modules/storage_node_session.conf
 
-COPY default.conf /etc/nginx/http.d/default.conf
+COPY config/options.conf /etc/nginx/options.conf
+COPY config/default.conf /etc/nginx/http.d/default.conf
 
 USER nginx
 CMD ["nginx", "-g", "daemon off;"]

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Storage Node Usage Example</title>
+    <style>
+        .gallery-item { background: grey; }
+        .session-ready .gallery-item { background-image: var(--img-url); }
+    </style>
+</head>
+<body>
+    <h1>Storage Node Usage Example</h1>
+    <img style="width: 400px; height: 265px;" class="gallery-item" data-src="https://node1.localhost:8443/data/img1.webp" />
+
+    <script>
+        async function initSession(token) {
+            const response = await fetch('https://node1.localhost:8443/service/start', {
+                headers: { 'X-Session-Token': token },
+                credentials: 'include'
+            });
+
+            if (!response.ok) {
+                console.error('Failed to start session:', response.status);
+                return;
+            }
+
+            document.querySelectorAll('img[data-src]').forEach(img => {
+                img.src = img.dataset.src;
+                img.crossOrigin = 'use-credentials';
+            });
+
+            document.body.classList.add('session-ready');
+        }
+
+        initSession('{{.Token}}');
+    </script>
+</body>
+</html>

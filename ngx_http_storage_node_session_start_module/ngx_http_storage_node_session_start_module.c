@@ -277,14 +277,14 @@ ngx_http_storage_node_session_handler(ngx_http_request_t *r)
 
     set_cookie->hash = 1;
     ngx_str_set(&set_cookie->key, "Set-Cookie");
-    set_cookie->value.len = sizeof("storagesession=; Path=/; HttpOnly") - 1 + token.len;
+    set_cookie->value.len = sizeof("storagesession=; Path=/; HttpOnly; SameSite=None; Secure") - 1 + token.len;
     set_cookie->value.data = ngx_pnalloc(r->pool, set_cookie->value.len);
     if (set_cookie->value.data == NULL) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
     ngx_snprintf(set_cookie->value.data, set_cookie->value.len + 1,
-                 "storagesession=%V; Path=/; HttpOnly", &token);
+                 "storagesession=%V; Path=/; HttpOnly; SameSite=None; Secure", &token);
 
     /* Send response */
     r->headers_out.status = NGX_HTTP_OK;
