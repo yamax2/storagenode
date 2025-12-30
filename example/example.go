@@ -87,7 +87,7 @@ func generateJWT(payload map[string]any) (string, error) {
 		"kid": keyID,
 	}
 
-	payload["exp"] = time.Now().Add(time.Hour).Unix()
+	payload["exp"] = time.Now().Add(time.Minute).Unix()
 
 	headerJSON, _ := json.Marshal(header)
 	payloadJSON, _ := json.Marshal(payload)

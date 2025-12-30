@@ -159,9 +159,10 @@ curl 'http://localhost:8080/data/dir1/test.txt' -b cookies.txt
 
 # Setup
 
-## Generate keys and start container
+## Generate keys and start demo
 ```bash
-docker build -t yamax2/storagenode .
 ./gen_keys_example.sh
 docker-compose up -d
 ```
+
+and open https://application.localhost:8443 in browser

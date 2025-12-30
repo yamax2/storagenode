@@ -1,3 +1,3 @@
-/data
-/keys
 .DS_Store
+/keys/*
+!/keys/openssl.cnf
