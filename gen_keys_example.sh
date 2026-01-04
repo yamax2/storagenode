@@ -5,13 +5,21 @@ set -e
 mkdir -p keys
 
 # node
-openssl genrsa -out ./keys/node.pem 2048
+if [ ! -f ./keys/node.pem ]; then
+    openssl genrsa -out ./keys/node.pem 2048
+fi
+
 ./jwks.sh ./keys/node.pem > ./keys/node.jwks
 
 # example nginx configuration
-openssl genrsa -out ./keys/server.key 2048
-openssl req -new -x509 -sha256 -nodes -days 3650 -key ./keys/server.key -out ./keys/server.crt -config ./keys/openssl.cnf -extensions req_ext
+if [ ! -f ./keys/server.key ]; then
+    openssl genrsa -out ./keys/server.key 2048
+    openssl req -new -x509 -sha256 -nodes -days 3650 -key ./keys/server.key -out ./keys/server.crt -config ./keys/openssl.cnf -extensions req_ext
+fi
 
 # app
-openssl genrsa -out ./keys/application.pem 4096
+if [ ! -f ./keys/application.pem ]; then
+    openssl genrsa -out ./keys/application.pem 4096
+fi
+
 ./jwks.sh ./keys/application.pem > ./keys/application.jwks
