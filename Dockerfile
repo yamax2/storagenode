@@ -26,7 +26,7 @@ RUN apk --no-cache upgrade && \
     git clone https://github.com/kjdev/nginx-auth-jwt.git && \
     git clone https://github.com/arut/nginx-dav-ext-module.git
 
-RUN nginx_opt=$(nginx -V 2>&1 | tail -1 | sed -e "s/configure arguments://" -e "s| --add-dynamic-module=[^ ]*||g") && \
+RUN nginx_opt=$(nginx -V 2>&1 | tail -1 | sed -e "s/configure arguments://" -e "s| --add-dynamic-module=[^ ]*||g" -e "s| --with-pcre2||g") && \
     cd nginx                              && \
     ./configure ${nginx_opt}                 \
       --add-dynamic-module=../nginx-auth-jwt \
@@ -38,6 +38,7 @@ RUN nginx_opt=$(nginx -V 2>&1 | tail -1 | sed -e "s/configure arguments://" -e "
     cp objs/ngx_http_auth_jwt_module.so   /usr/lib/nginx/modules/ && \
     cp objs/ngx_http_dav_ext_module.so    /usr/lib/nginx/modules/ && \
     cp objs/ngx_http_storage_node_session_start_module.so /usr/lib/nginx/modules/ && \
+    cp objs/nginx /usr/sbin/nginx         && \
     mkdir -p /etc/nginx/modules           && \
     echo 'load_module "/usr/lib/nginx/modules/ngx_http_auth_jwt_module.so";' > /etc/nginx/modules/auth_jwt.conf && \
     echo 'load_module "/usr/lib/nginx/modules/ngx_http_dav_ext_module.so";' > /etc/nginx/modules/dav_ext.conf   && \
@@ -50,6 +51,7 @@ RUN apk --no-cache upgrade     && \
     apk --no-cache add            \
       jansson                     \
       libxslt                     \
+      pcre                        \
       nginx                    && \
     sed \
       -e 's/^user /#user /' \
@@ -59,6 +61,7 @@ RUN apk --no-cache upgrade     && \
     mkdir -p /data/nginx/cache /data/files && \
     chown -R nginx:nginx /data
 
+COPY --from=builder /usr/sbin/nginx /usr/sbin/nginx
 COPY --from=builder /usr/lib/nginx/modules/ngx_http_auth_jwt_module.so /usr/lib/nginx/modules/ngx_http_auth_jwt_module.so
 COPY --from=builder /usr/lib/nginx/modules/ngx_http_dav_ext_module.so /usr/lib/nginx/modules/ngx_http_dav_ext_module.so
 COPY --from=builder /usr/lib/nginx/modules/ngx_http_storage_node_session_start_module.so /usr/lib/nginx/modules/ngx_http_storage_node_session_start_module.so
