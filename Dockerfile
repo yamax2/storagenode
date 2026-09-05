@@ -24,7 +24,7 @@ RUN apk --no-cache upgrade && \
     tar -xf nginx-${nginx_version}.tar.gz && \
     mv nginx-${nginx_version} nginx && \
     git clone --recurse-submodules https://github.com/kjdev/nginx-auth-jwt.git && \
-    git clone https://github.com/arut/nginx-dav-ext-module.git
+    git clone https://github.com/yamax2/nginx-dav-ext-module.git
 
 RUN nginx_opt=$(nginx -V 2>&1 | tail -1 | sed -e "s/configure arguments://" -e "s| --add-dynamic-module=[^ ]*||g" -e "s| --with-pcre2||g") && \
     cd nginx                              && \

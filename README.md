@@ -9,7 +9,7 @@ Containerized Nginx-based WebDAV file server with dual-layer JWT authentication.
 
 Based on:
 * [nginx-auth-jwt](https://github.com/kjdev/nginx-auth-jwt) - JWT validation
-* [nginx-dav-ext-module](https://github.com/arut/nginx-dav-ext-module) - WebDAV protocol
+* [nginx-dav-ext-module](https://github.com/yamax2/nginx-dav-ext-module) - WebDAV protocol, forked to add `md5`/`sha256` PROPFIND properties
 * `ngx_http_storage_node_session_start_module` - custom module for RS256 session cookies
 
 # Service endpoint
@@ -136,6 +136,55 @@ response:
 </D:response>
 </D:multistatus>
 ```
+
+### Get file checksums
+`md5` and `sha256` are extra PROPFIND properties served by our fork of
+[nginx-dav-ext-module](https://github.com/yamax2/nginx-dav-ext-module) in the
+`urn:dav-ext` namespace. They are enabled by `dav_ext_checksums on`
+in `config/default.conf`.
+
+They cost a full read of the file, so they are not part of the default response
+above: a client has to ask for them by name in the request body. Requesting
+`sha256` alone does not also compute `md5`.
+
+Property names are matched without checking the namespace they are declared in,
+so any element named `md5` or `sha256` in the request triggers the read.
+
+```sh
+curl -X PROPFIND -H 'Depth: 0' 'http://localhost:8080/service/dir1/test.txt' \
+  -H "X-Session-Token: $TOKEN" \
+  --data-binary '<?xml version="1.0"?>
+<D:propfind xmlns:D="DAV:" xmlns:C="urn:dav-ext">
+  <D:prop>
+    <C:md5/>
+    <C:sha256/>
+  </D:prop>
+</D:propfind>'
+```
+response, for a `test.txt` holding `hello checksum world`:
+```xml
+<?xml version="1.0" encoding="utf-8" ?>
+<D:multistatus xmlns:D="DAV:" xmlns:C="urn:dav-ext">
+<D:response>
+<D:href>/test/dir1/test.txt</D:href>
+<D:propstat>
+<D:prop>
+<C:md5>81f90f926b3e019b743181fd8cdff9bb</C:md5>
+<C:sha256>54b546dd1abc7108f73affc828b0771155ac437c380a245f1f183ca4d455c5fc</C:sha256>
+</D:prop>
+<D:status>HTTP/1.1 200 OK</D:status>
+</D:propstat>
+</D:response>
+</D:multistatus>
+```
+
+The same body works with `Depth: 1` to checksum every file in a directory. Note
+that this reads every file in it on every request — there is no cache.
+
+The checksum elements are left out of the `200 OK` block, rather than failing
+the request, when the entry is not a regular file (directories, FIFOs and
+devices are never opened), when it is larger than `dav_ext_checksum_max_size`
+(unset by default, meaning no limit), or when it cannot be read.
 
 ### Start a session
 Issues a 24-hour session cookie for `/data/` access:
