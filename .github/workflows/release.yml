@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+*'
+  workflow_dispatch:
 
 env:
   IMAGE_NAME: yamax2/storagenode
@@ -127,3 +128,85 @@ jobs:
       - name: Inspect image
         run: |
           docker buildx imagetools inspect "$IMAGE_NAME:${{ steps.meta.outputs.version }}"
+
+  bundle:
+    name: Build ${{ matrix.name }} archive
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/arm/v7
+            name: linux-armv7
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Version
+        id: version
+        run: |
+          ref='${{ github.ref }}'
+          case "$ref" in
+            refs/tags/*) version="${ref#refs/tags/}" ;;
+            *)           version="0.0.0-${GITHUB_SHA::7}" ;;
+          esac
+          echo "version=${version#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: ${{ matrix.platform }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # The bundle is cross-built under emulation, so a cold cache takes a
+      # while; the warm one keeps re-runs of a release cheap.
+      - name: Build bundle
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./bundle/Dockerfile
+          target: bundle
+          platforms: ${{ matrix.platform }}
+          cache-from: type=gha,scope=bundle-${{ matrix.name }}
+          cache-to: type=gha,scope=bundle-${{ matrix.name }},mode=max
+          outputs: type=local,dest=./bundle-out
+          provenance: false
+
+      - name: Create archive
+        id: archive
+        env:
+          DIR: storagenode-${{ steps.version.outputs.version }}-${{ matrix.name }}
+        run: |
+          mv ./bundle-out "$DIR"
+          chmod +x "$DIR/run.sh" "$DIR/nginx"
+          # buildx exports the destination directory as 0700. Left that way the
+          # archive unpacks into a directory the nginx worker user cannot
+          # traverse, and every static file 404s with a [crit] "Permission
+          # denied" naming the file rather than the directory.
+          chmod 755 "$DIR"
+          tar -czf "$DIR.tar.gz" "$DIR"
+          sha256sum "$DIR.tar.gz" > "$DIR.tar.gz.sha256"
+          echo "name=$DIR" >> "$GITHUB_OUTPUT"
+          ls -la "$DIR"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.archive.outputs.name }}
+          path: |
+            ${{ steps.archive.outputs.name }}.tar.gz
+            ${{ steps.archive.outputs.name }}.tar.gz.sha256
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.archive.outputs.name }}.tar.gz
+            ${{ steps.archive.outputs.name }}.tar.gz.sha256

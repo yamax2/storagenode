@@ -1,3 +1,6 @@
 .DS_Store
 /keys/*
 !/keys/openssl.cnf
+bundle-out/
+storagenode-*.tar.gz
+storagenode-*.tar.gz.sha256

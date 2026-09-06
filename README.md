@@ -215,3 +215,28 @@ docker-compose up -d
 ```
 
 and open https://application.localhost:8443 in browser
+
+## Standalone armv7 archive
+
+Releases also carry `storagenode-<version>-linux-armv7.tar.gz` for hosts where
+Docker is not an option. It unpacks into a single directory holding the nginx
+binary, the three dynamic modules, every shared library they need (the musl
+loader included, so it runs on glibc systems too) and an example configuration:
+
+```bash
+tar -xzf storagenode-<version>-linux-armv7.tar.gz
+cd storagenode-<version>-linux-armv7
+
+./gen_keys_example.sh   # from this repository, then copy keys/ in place
+./run.sh -t
+./run.sh -g 'daemon off;'
+```
+
+Nothing is installed system-wide and the directory can be moved anywhere; see
+`README.md` inside the archive for the expected layout and a systemd unit.
+Build it locally with:
+
+```bash
+docker buildx build --platform linux/arm/v7 -f bundle/Dockerfile \
+  --target bundle -o type=local,dest=./bundle-out .
+```
