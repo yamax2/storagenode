@@ -183,16 +183,17 @@ jobs:
           DIR: storagenode-${{ steps.version.outputs.version }}-${{ matrix.name }}
         run: |
           mv ./bundle-out "$DIR"
-          chmod +x "$DIR/run.sh" "$DIR/nginx"
+          chmod +x "$DIR/run.sh" "$DIR/jwks.sh" "$DIR/nginx"
           # buildx exports the destination directory as 0700. Left that way the
           # archive unpacks into a directory the nginx worker user cannot
           # traverse, and every static file 404s with a [crit] "Permission
-          # denied" naming the file rather than the directory.
-          chmod 755 "$DIR"
+          # denied" naming the file rather than the directory. conf/ needs the
+          # same treatment: the worker reads mime.types from it at startup.
+          find "$DIR" -type d -exec chmod 755 {} +
           tar -czf "$DIR.tar.gz" "$DIR"
           sha256sum "$DIR.tar.gz" > "$DIR.tar.gz.sha256"
           echo "name=$DIR" >> "$GITHUB_OUTPUT"
-          ls -la "$DIR"
+          ls -laR "$DIR"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

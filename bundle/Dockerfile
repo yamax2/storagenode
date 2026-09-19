@@ -1,10 +1,11 @@
-# Builds a self-contained, relocatable nginx bundle (binary + dynamic modules +
-# every shared library they need + example configuration) in a single flat
-# directory. Everything is exported through a scratch stage so buildx can write
-# it straight to the host with `--output type=local`.
+# Builds a self-contained, relocatable nginx bundle: the binary, its dynamic
+# modules and every shared library they need at the top level, the example
+# configuration in conf/. Everything is exported through a scratch stage so
+# buildx can write it straight to the host with `--output type=local`.
 #
 # The build context is the repository root, not this directory, because the
-# session-start module lives there:
+# session-start module and jwks.sh live there -- both are taken from the
+# repository rather than copied into bundle/:
 #
 #   docker buildx build --platform linux/arm/v7 -f bundle/Dockerfile \
 #     --target bundle -o type=local,dest=./bundle-out .
@@ -44,7 +45,7 @@ RUN cd nginx && \
       --prefix=/opt/storagenode \
       --sbin-path=nginx \
       --modules-path=. \
-      --conf-path=nginx.conf \
+      --conf-path=conf/nginx.conf \
       --pid-path=nginx.pid \
       --lock-path=nginx.lock \
       --error-log-path=stderr \
@@ -72,20 +73,28 @@ RUN cd nginx && \
     make -j"$(nproc)"
 
 COPY bundle /bundle_src
+# Shipped verbatim from the repository root, so there is no second copy of it
+# under bundle/ to keep in sync.
+COPY jwks.sh /jwks.sh
 
-# Assemble the flat directory: binary, modules, then the transitive closure of
-# their shared libraries (including the musl loader, so the bundle also runs on
-# glibc-based armv7 systems).
+# Assemble the bundle: binary, modules and their shared libraries (including the
+# musl loader, so the bundle also runs on glibc-based armv7 systems) at the root,
+# where nginx resolves them against the prefix; every configuration file in
+# conf/, where nginx resolves includes against the main config file. conf/keys/
+# ships empty -- the operator fills it at deploy time, and the example config
+# reaches it as `keys/...` from the cert directives.
 RUN set -eu; \
-    mkdir -p /bundle; \
+    mkdir -p /bundle/conf/keys; \
     cp nginx/objs/nginx                                            /bundle/; \
     cp nginx/objs/ngx_http_auth_jwt_module.so                      /bundle/; \
     cp nginx/objs/ngx_http_dav_ext_module.so                       /bundle/; \
     cp nginx/objs/ngx_http_storage_node_session_start_module.so    /bundle/; \
-    cp nginx/conf/mime.types                                       /bundle/; \
-    cp /bundle_src/nginx.conf /bundle_src/storagenode.conf /bundle_src/options.conf /bundle_src/README.md /bundle/; \
-    cp /bundle_src/run.sh /bundle/; \
-    chmod +x /bundle/run.sh /bundle/nginx; \
+    cp nginx/conf/mime.types                                       /bundle/conf/; \
+    cp /bundle_src/conf/nginx.conf /bundle_src/conf/storagenode.conf \
+       /bundle_src/conf/options.conf                                   /bundle/conf/; \
+    cp /bundle_src/README.md /bundle_src/run.sh                        /bundle/; \
+    cp /jwks.sh                                                        /bundle/jwks.sh; \
+    chmod 755 /bundle/run.sh /bundle/jwks.sh /bundle/nginx; \
     : > /tmp/todo; : > /tmp/seen; \
     for f in /bundle/nginx /bundle/*.so; do echo "$f" >> /tmp/todo; done; \
     while [ -s /tmp/todo ]; do \
@@ -101,15 +110,15 @@ RUN set -eu; \
     done; \
     cp /nginx_version /bundle/VERSION.nginx; \
     strip /bundle/nginx /bundle/*.so; \
-    ls -la /bundle
+    ls -laR /bundle
 
 # Smoke test: load every module through the bundled loader. The example config
 # is not used here because it references TLS keys that only exist at deploy time.
 RUN set -eu; \
-    printf 'load_module ngx_http_auth_jwt_module.so;\nload_module ngx_http_dav_ext_module.so;\nload_module ngx_http_storage_node_session_start_module.so;\nevents {}\nhttp {}\n' > /bundle/smoke.conf; \
-    "$(ls /bundle/ld-musl-*.so.1)" --library-path /bundle /bundle/nginx -p /bundle/ -c /bundle/smoke.conf -t; \
-    rm -rf /bundle/smoke.conf /bundle/nginx.pid /bundle/tmp; \
-    ls -la /bundle
+    printf 'load_module ngx_http_auth_jwt_module.so;\nload_module ngx_http_dav_ext_module.so;\nload_module ngx_http_storage_node_session_start_module.so;\nevents {}\nhttp { include mime.types; }\n' > /bundle/conf/smoke.conf; \
+    "$(ls /bundle/ld-musl-*.so.1)" --library-path /bundle /bundle/nginx -p /bundle/ -c /bundle/conf/smoke.conf -t; \
+    rm -rf /bundle/conf/smoke.conf /bundle/nginx.pid /bundle/tmp; \
+    ls -laR /bundle
 
 FROM scratch AS bundle
 COPY --from=builder /bundle /

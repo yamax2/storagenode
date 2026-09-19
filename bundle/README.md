@@ -2,9 +2,8 @@
 
 A self-contained nginx build for armv7 Linux: the nginx binary, the three
 dynamic modules the storage node needs, every shared library they link against
-(including the musl loader) and an example configuration — all in this single
-directory. Nothing is installed system-wide and the directory can be moved
-anywhere.
+(including the musl loader) and an example configuration in `conf/`. Nothing is
+installed system-wide and the directory can be moved anywhere.
 
 ## Contents
 
@@ -15,20 +14,20 @@ anywhere.
 | `ngx_http_dav_ext_module.so` | [yamax2/nginx-dav-ext-module](https://github.com/yamax2/nginx-dav-ext-module) (PROPFIND checksums) |
 | `ngx_http_storage_node_session_start_module.so` | session-start module from this repository |
 | `ld-musl-*.so.1`, `lib*.so*` | runtime libraries, loaded from this directory only |
-| `nginx.conf` | example main configuration |
-| `storagenode.conf` | example server blocks, included by `nginx.conf` |
-| `options.conf` | example CORS headers, included by `storagenode.conf` |
-| `mime.types` | stock nginx MIME map |
+| `conf/nginx.conf` | example main configuration |
+| `conf/storagenode.conf` | example server blocks, included by `nginx.conf` |
+| `conf/options.conf` | example CORS headers, included by `storagenode.conf` |
+| `conf/mime.types` | stock nginx MIME map |
+| `conf/keys/` | TLS certificate, node signing key and the JWKS files (you supply) |
 | `run.sh` | launcher that wires up the loader and the prefix |
+| `jwks.sh` | derives a JWKS from an RSA private key |
 | `VERSION.nginx` | nginx version this bundle was built from |
 
 ## Layout expected at runtime
 
-All paths in the example configuration are relative to this directory, which
-`run.sh` passes to nginx as its prefix:
-
 ```
-keys/        server.crt, server.key, node.pem, node.jwks, application.jwks
+conf/        the example configuration (shipped)
+conf/keys/   server.crt, server.key, node.pem, node.jwks, application.jwks
 data/files/  files served over WebDAV
 data/cache/  proxy cache (created by run.sh)
 logs/        access.log and error.log (created by run.sh)
@@ -36,7 +35,33 @@ tmp/         nginx temporary files (created by run.sh)
 ```
 
 Generate a set of development keys with `gen_keys_example.sh` from the
-repository and copy the result into `keys/`.
+repository and copy the result into `conf/keys/`. `jwks.sh` is the same script
+the repository uses, shipped here so a node can rebuild its JWKS in place:
+
+```sh
+./jwks.sh conf/keys/node.pem > conf/keys/node.jwks
+```
+
+`conf/keys/` holds private keys, so keep it readable only by the nginx worker
+user: `chmod 700 conf/keys` once the bundle runs as a dedicated user.
+
+### Two base directories
+
+Paths in the configuration are relative, but nginx resolves them against one of
+two bases, which matters now that the configuration sits in `conf/`:
+
+| Resolved against the prefix (this directory) | Resolved against `conf/` |
+| --- | --- |
+| `load_module`, `root`, `alias`, `proxy_cache_path`, `error_log`, `access_log`, `pid`, `*_temp_path` | `include`, `ssl_certificate`, `ssl_certificate_key`, `auth_jwt_key_file` |
+
+The keys live in `conf/keys/`, so the right-hand column reaches them as
+`keys/server.crt` while the left-hand one has to spell out `conf/keys` — both
+name the same directory. Adding a key or certificate path? Check which column
+the directive is in first.
+
+`storage_node_session_start` is a third case: the module opens its key itself,
+relative to the working directory nginx was started in, so run `run.sh` from
+this directory (or make the path absolute).
 
 ## Running
 
@@ -48,7 +73,7 @@ repository and copy the result into `keys/`.
 
 The example listens on 8080/8443 so it needs no root and does not collide with
 an appliance web UI already holding 80/443. To use the standard ports, edit the
-`listen` directives in `storagenode.conf` and either run as root or grant
+`listen` directives in `conf/storagenode.conf` and either run as root or grant
 `setcap cap_net_bind_service=+ep ./nginx`.
 
 To run a different configuration: `./run.sh -c /path/to/nginx.conf`. Keep using
@@ -84,7 +109,7 @@ which covers Cortex-A7/A8/A9/A15 and later. Check with `readelf -A ./nginx`
 against `/proc/cpuinfo`.
 
 If the kernel was built without IPv6, comment out the `listen [::]:...` lines in
-`storagenode.conf`; nginx treats an unsupported address family as fatal.
+`conf/storagenode.conf`; nginx treats an unsupported address family as fatal.
 
 ## systemd
 
@@ -94,6 +119,7 @@ Description=storagenode
 After=network.target
 
 [Service]
+WorkingDirectory=/opt/storagenode
 ExecStart=/opt/storagenode/run.sh -g 'daemon off;'
 ExecReload=/opt/storagenode/run.sh -s reload
 Restart=on-failure

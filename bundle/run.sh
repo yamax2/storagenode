@@ -13,7 +13,7 @@
 set -eu
 
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-CONF="$DIR/nginx.conf"
+CONF="$DIR/conf/nginx.conf"
 
 if [ "${1:-}" = "-c" ]; then
   shift
