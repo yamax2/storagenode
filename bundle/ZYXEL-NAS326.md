@@ -5,8 +5,9 @@ the armv7 bundle runs on it as-is. What the box does *not* give you is a normal
 init system: `/etc`, `/usr/bin` and the rest of the root filesystem are
 recreated from the firmware image on every boot, so anything you drop there is
 gone after a restart. The only writable, persistent storage is the data volume
-under `/i-data/`, and the firmware has exactly one supported hook for running
-your own code from there at boot.
+under `/i-data/`, and the firmware has essentially one hook for running your
+own code from there at boot (a second one, honoured by some builds, is noted in
+section 2).
 
 This document covers that hook: writing the init script, and registering it.
 It assumes the bundle is already on the volume and `./run.sh -t` passes.
@@ -40,8 +41,19 @@ Create `/i-data/.system/zy-pkgs/storagenode.sh` with this content:
 
 BUNDLE=/i-data/5c1d0068/node-ekb
 LOG=$BUNDLE/logs/boot.log
+ROTATE_PID=$BUNDLE/logs/rotator.pid
+MAXSIZE=${MAXSIZE:-10485760}    # rotate a log once it grows past 10 MB
+KEEP=7                          # generations to keep
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
+
+# A pidfile on the data volume outlives a power cut, and after the reboot that
+# number may belong to some system daemon -- never signal it unchecked.
+# Sets $pid on success.
+pid_alive() {   # pid_alive <pidfile> <pattern expected in /proc/PID/cmdline>
+    pid=$(cat "$1" 2>/dev/null)
+    [ -n "$pid" ] && grep -qs "$2" "/proc/$pid/cmdline"
+}
 
 start() {
     [ -x "$BUNDLE/run.sh" ] || { log "run.sh missing or not executable"; exit 1; }
@@ -49,24 +61,75 @@ start() {
     log "starting storagenode"
     # run.sh daemonizes nginx itself, so no trailing '&' is needed.
     "$BUNDLE/run.sh" >> "$LOG" 2>&1
-    log "run.sh exited with $?"
+    rc=$?
+    log "run.sh exited with $rc"
+    [ "$rc" -eq 0 ] || return 1
+    rotator_start
 }
 
 stop() {
     log "stopping storagenode"
-    "$BUNDLE/run.sh" -s quit >> "$LOG" 2>&1 || kill $(cat "$BUNDLE/nginx.pid" 2>/dev/null) 2>/dev/null
+    rotator_stop
+    if pid_alive "$BUNDLE/nginx.pid" nginx; then
+        "$BUNDLE/run.sh" -s quit >> "$LOG" 2>&1 || kill "$pid" 2>/dev/null
+    else
+        log "no live nginx behind nginx.pid, nothing to stop"
+        rm -f "$BUNDLE/nginx.pid"
+    fi
+}
+
+# nginx keeps writing to the old inode after a rename, so every rotation has to
+# be followed by exactly one 'reopen' -- and only then is it safe to compress.
+rotate() {
+    rotated=
+    for f in "$BUNDLE/logs/access.log" "$BUNDLE/logs/error.log" "$LOG"; do
+        [ -f "$f" ] || continue
+        [ "$(wc -c < "$f")" -ge "$MAXSIZE" ] || continue
+
+        rm -f "$f.$KEEP.gz" "$f.$KEEP"
+        i=$KEEP
+        while [ "$i" -gt 1 ]; do
+            j=$((i - 1))
+            # .gz normally; the plain name only if gzip was unavailable
+            [ -f "$f.$j.gz" ] && mv "$f.$j.gz" "$f.$i.gz"
+            [ -f "$f.$j" ] && mv "$f.$j" "$f.$i"
+            i=$j
+        done
+        mv "$f" "$f.1"
+        rotated="$rotated $f.1"
+    done
+
+    [ -n "$rotated" ] || return 0
+
+    "$BUNDLE/run.sh" -s reopen >/dev/null 2>&1
+    sleep 1
+    for f in $rotated; do
+        gzip -f "$f" 2>/dev/null || true
+    done
+    log "rotated:$rotated"
+}
+
+rotator_start() {
+    rotator_stop
+    ( while :; do sleep 3600; rotate; done ) &
+    echo $! > "$ROTATE_PID"
+}
+
+rotator_stop() {
+    pid_alive "$ROTATE_PID" storagenode.sh && kill "$pid" 2>/dev/null
+    rm -f "$ROTATE_PID"
 }
 
 case "$1" in
     startup|start)   start ;;
     shutdown|stop)   stop ;;
     restart)         stop; sleep 2; start ;;
-    status)          [ -f "$BUNDLE/nginx.pid" ] && kill -0 $(cat "$BUNDLE/nginx.pid") 2>/dev/null \
-                         && echo "running" || echo "stopped" ;;
-    *)               echo "Usage: $0 {startup|shutdown|restart|status}"; exit 1 ;;
+    rotate)          rotate ;;
+    status)          pid_alive "$BUNDLE/nginx.pid" nginx && echo "running" || echo "stopped" ;;
+    *)               echo "Usage: $0 {startup|shutdown|restart|rotate|status}"; exit 1 ;;
 esac
 
-exit 0
+exit $?
 ```
 
 Then make it executable — the controller skips files without the bit:
@@ -91,6 +154,14 @@ Why it is written this way:
   to the same binary with the same prefix and config, which drains connections;
   `killall nginx` would also hit any unrelated nginx and skips the graceful
   shutdown. The `kill` on the pidfile is only a fallback.
+- **No pidfile is trusted on its own.** Both pidfiles live on the data volume,
+  so they outlive a power cut — and after the reboot the PID they name may
+  belong to a system daemon, which the hook would then signal as root. nginx's
+  own `-s quit` does not validate the pidfile either, so `pid_alive` checks
+  `/proc/<pid>/cmdline` before anything is signalled or reported as running.
+- **Rotation is part of the hook.** There is no `logrotate` and no persistent
+  crontab on this firmware, so the script carries its own rotator, started only
+  once nginx is actually up and stopped again by `shutdown`. See section 3.
 - **No `&`.** `run.sh` execs nginx without `daemon off`, so nginx backgrounds
   itself and `run.sh` returns immediately. Adding `&` would be harmless but
   pointless — and if you ever switch to `-g 'daemon off;'`, you must add it,
@@ -132,8 +203,8 @@ Then reboot and verify:
 reboot
 # ... wait for the box, ssh back in ...
 ps | grep [n]ginx
-tail -20 /i-data/sysvol/storagenode/bundle/logs/boot.log
-tail -20 /i-data/sysvol/storagenode/bundle/logs/error.log
+tail -20 /i-data/5c1d0068/node-ekb/logs/boot.log
+tail -20 /i-data/5c1d0068/node-ekb/logs/error.log
 ```
 
 **To disable autostart**, remove the line from `USRPKG_DEPS_START` (or
@@ -150,16 +221,49 @@ register the script in both places, or it will be started twice.
 
 ---
 
-## Troubleshooting
+## 3. Log rotation
 
-| Symptom | Cause |
-|---|---|
-| Nothing runs at boot, no log file | Script not executable, or missing the literal `/i-data/` string, or the name in `USRPKG_DEPS_START` does not match the filename exactly |
-| `boot.log` shows only the usage line | Firmware passed `startup` to a script that only handles `start` |
-| Works by hand, fails at boot | Relative path, or a command that is not in the boot-time `PATH` — use absolute paths for everything |
-| `not found` on a script that exists | CRLF line endings: `sed -i 's/\r$//' <file>` |
-| nginx exits immediately at boot, fine manually | Check `logs/error.log`: usually a port already taken by the web UI, or a `listen [::]` line on a kernel without IPv6 (nginx treats that as fatal) |
-| Everything disappears after a firmware upgrade | `/i-data/` survives upgrades, `/etc` does not — re-check that you edited only files under `/i-data/` |
+`access.log` and `error.log` grow without bound — nginx never rotates them
+itself, and on this firmware nothing else will either. There is no `logrotate`
+binary, and BusyBox `crond` keeps its crontabs under `/var/spool/cron/crontabs/`
+on the ramdisk, so a `crontab -e` entry is gone after the next reboot. The boot
+hook is the only persistent place to put this, so the script above carries its
+own rotator.
+
+`rotator_start` forks a loop that calls `rotate` every hour and writes the
+loop's PID to `logs/rotator.pid`, so `shutdown` can kill it and a restart never
+leaves two rotators running. `rotate` is a no-op unless a log has passed
+`MAXSIZE` (10 MB), so the hourly wake-up costs nothing on a quiet box while a
+busy one gets trimmed promptly instead of at a fixed hour.
+
+The order inside `rotate` is the part that matters:
+
+1. Shift `access.log.1.gz` → `.2.gz` → … and drop generation `$KEEP`.
+2. `mv access.log access.log.1`. nginx holds the file by inode, so it keeps
+   writing into the renamed file — nothing is lost yet, and nothing appears in
+   a new `access.log` either.
+3. `run.sh -s reopen`, once, after *all* the renames. That sends `SIGUSR1` to
+   the master through the bundle's own prefix and pidfile; nginx closes the old
+   descriptors and creates fresh log files.
+4. Only then `gzip` the `.1` files. Compressing before the reopen would
+   compress a file nginx is still appending to.
+
+Tune `MAXSIZE` and `KEEP` at the top of the script. The ceiling is per log
+file, and `rotate` covers three of them (`access.log`, `error.log`,
+`boot.log`): seven 10 MB generations each is ~210 MB worst case before
+compression, and a good deal less once gzipped.
+
+Test it without waiting for the threshold — `MAXSIZE` is overridable from the
+environment for exactly this:
+
+```sh
+MAXSIZE=1 /i-data/.system/zy-pkgs/storagenode.sh rotate
+ls -l /i-data/5c1d0068/node-ekb/logs/
+```
+
+The new `access.log` must start growing again on the next request. If it stays
+at 0 bytes while requests are served, the reopen did not reach the master:
+check `logs/boot.log` and that `nginx.pid` holds the PID of a live process.
 
 ## References
 
