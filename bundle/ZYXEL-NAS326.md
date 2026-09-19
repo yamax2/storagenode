@@ -49,10 +49,22 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
 
 # A pidfile on the data volume outlives a power cut, and after the reboot that
 # number may belong to some system daemon -- never signal it unchecked.
+#
+# Identify by the bundle path, not by the name "nginx": run.sh starts nginx
+# through the musl loader, so argv[0] is the loader and this kernel truncates
+# /proc/PID/cmdline at the first NUL once nginx rewrites its proctitle. All
+# that survives is the loader path -- which still lives inside the bundle,
+# and no firmware daemon holding a recycled PID ever will.
 # Sets $pid on success.
-pid_alive() {   # pid_alive <pidfile> <pattern expected in /proc/PID/cmdline>
+pid_alive() {   # pid_alive <pidfile> <substring of cmdline, or of /proc/PID/exe>
     pid=$(cat "$1" 2>/dev/null)
-    [ -n "$pid" ] && grep -qs "$2" "/proc/$pid/cmdline"
+    [ -n "$pid" ] && [ -d "/proc/$pid" ] || return 1
+    ident=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)
+    # Empty on kernels that blank the arg area outright; exe is a kernel
+    # symlink and unaffected by the proctitle rewrite.
+    [ -n "$ident" ] || ident=$(readlink "/proc/$pid/exe" 2>/dev/null)
+    case "$ident" in *"$2"*) return 0 ;; esac
+    return 1
 }
 
 start() {
@@ -70,12 +82,21 @@ start() {
 stop() {
     log "stopping storagenode"
     rotator_stop
-    if pid_alive "$BUNDLE/nginx.pid" nginx; then
+    if pid_alive "$BUNDLE/nginx.pid" "$BUNDLE"; then
         "$BUNDLE/run.sh" -s quit >> "$LOG" 2>&1 || kill "$pid" 2>/dev/null
-    else
-        log "no live nginx behind nginx.pid, nothing to stop"
-        rm -f "$BUNDLE/nginx.pid"
+        return 0
     fi
+    # No usable pidfile -- but nginx may still be up, and dropping the file
+    # here would leave it unstoppable. Sweep /proc for a master started from
+    # this bundle. Workers carry "nginx: worker process" with no path, so only
+    # the master matches, and it takes the workers down with it.
+    log "no live nginx behind nginx.pid, sweeping /proc"
+    for p in /proc/[0-9]*; do
+        grep -qs "$BUNDLE" "$p/cmdline" || continue
+        log "killing orphaned master ${p#/proc/}"
+        kill -QUIT "${p#/proc/}" 2>/dev/null
+    done
+    rm -f "$BUNDLE/nginx.pid"
 }
 
 # nginx keeps writing to the old inode after a rename, so every rotation has to
@@ -125,7 +146,7 @@ case "$1" in
     shutdown|stop)   stop ;;
     restart)         stop; sleep 2; start ;;
     rotate)          rotate ;;
-    status)          pid_alive "$BUNDLE/nginx.pid" nginx && echo "running" || echo "stopped" ;;
+    status)          pid_alive "$BUNDLE/nginx.pid" "$BUNDLE" && echo "running" || echo "stopped" ;;
     *)               echo "Usage: $0 {startup|shutdown|restart|rotate|status}"; exit 1 ;;
 esac
 
@@ -158,7 +179,10 @@ Why it is written this way:
   so they outlive a power cut — and after the reboot the PID they name may
   belong to a system daemon, which the hook would then signal as root. nginx's
   own `-s quit` does not validate the pidfile either, so `pid_alive` checks
-  `/proc/<pid>/cmdline` before anything is signalled or reported as running.
+  `/proc/<pid>` before anything is signalled or reported as running — matching
+  the bundle path, since `nginx` itself does not appear in the cmdline the
+  kernel reports. If the pidfile is gone but nginx is not, `stop` finds the
+  master by sweeping `/proc` rather than giving up.
 - **Rotation is part of the hook.** There is no `logrotate` and no persistent
   crontab on this firmware, so the script carries its own rotator, started only
   once nginx is actually up and stopped again by `shutdown`. See section 3.
