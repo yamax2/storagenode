@@ -15,18 +15,19 @@ set -eu
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 mkdir -p "$DIR/tmp" "$DIR/logs" "$DIR/data/files" "$DIR/data/cache" "$DIR/conf/keys"
 
-# generating keys
+# generating keys. Absolute paths throughout: a boot hook runs with an
+# arbitrary working directory, and no 'exec' -- that would replace this shell
+# and nginx would never be reached on the run that creates the keys.
 if [ ! -f "$DIR/conf/keys/node.pem" ]; then
-  openssl genrsa -out ./conf/keys/node.pem 2048
-  exec "$DIR/jwks.sh" "$DIR/conf/keys/node.pem" > "$DIR/conf/keys/node.jwks"
+  openssl genrsa -out "$DIR/conf/keys/node.pem" 2048
+  "$DIR/jwks.sh" "$DIR/conf/keys/node.pem" > "$DIR/conf/keys/node.jwks"
 fi
 
-# start
+# start. The binary's PT_INTERP is /lib/ld-musl-armhf.so.1, which exists on
+# Alpine but not on appliance firmware, and the kernel resolves it before any
+# loader or LD_LIBRARY_PATH gets a say -- so the bundled loader is not a
+# fallback, it is the only way in. Missing loader fails here, loudly, rather
+# than as an ENOENT from execve that every shell reports as "not found".
 LOADER=$(ls "$DIR"/ld-musl-*.so.1 2>/dev/null | head -n1 || true)
-if [ -n "$LOADER" ]; then
-  exec "$LOADER" --library-path "$DIR" "$DIR/nginx" -p "$DIR/" -c "$DIR/conf/nginx.conf" "$@"
-fi
-
-LD_LIBRARY_PATH="$DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-export LD_LIBRARY_PATH
-exec "$DIR/nginx" -p "$DIR/" -c "$DIR/conf/nginx.conf" "$@"
+[ -n "$LOADER" ] || { echo "$0: no ld-musl-*.so.1 alongside $DIR/nginx" >&2; exit 1; }
+exec "$LOADER" --library-path "$DIR" "$DIR/nginx" -p "$DIR/" -c "$DIR/conf/nginx.conf" "$@"
