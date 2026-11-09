@@ -243,7 +243,8 @@ Every `/data/` read looks the keys up through `/service_public_key`, an
 internal subrequest answered from `proxy_cache`. Its cache settings are
 therefore on the path of every image:
 
-- `proxy_cache_valid` keeps it to one JWKS fetch per ten minutes, and
+- The app's `Cache-Control: max-age` keeps it to one JWKS fetch per ten minutes
+  (`proxy_cache_valid` being the fallback for an app that sends none), and
   `proxy_cache_lock` collapses a cold-cache burst into one fetch.
 - `proxy_cache_use_stale` keeps reads going while the app is down, which only
   works because `proxy_cache_path` keeps an unread entry for a month
@@ -254,8 +255,9 @@ therefore on the path of every image:
 - The fetch verifies the app's certificate (`proxy_ssl_verify`): the key set
   decides every token and every data cookie on the node.
 
-It also means a new key reaches a node up to ten minutes after the app publishes
-it, so the app must publish a key for longer than that before it signs with it.
+It also means a new key reaches a node up to that `max-age` after the app
+publishes it, so the app must publish a key for longer than that before it signs
+with it.
 
 # Setup
 
