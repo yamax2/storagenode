@@ -183,7 +183,7 @@ jobs:
           DIR: storagenode-${{ steps.version.outputs.version }}-${{ matrix.name }}
         run: |
           mv ./bundle-out "$DIR"
-          chmod +x "$DIR/run.sh" "$DIR/jwks.sh" "$DIR/nginx"
+          chmod +x "$DIR/run.sh" "$DIR/nginx"
           # buildx exports the destination directory as 0700. Left that way the
           # archive unpacks into a directory the nginx worker user cannot
           # traverse, and every static file 404s with a [crit] "Permission

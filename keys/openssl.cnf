@@ -11,12 +11,14 @@ ST = Toshkent Shahar
 L = Tashkent
 O = Some Company, Inc.
 OU = IT
-CN = application.localhost
+CN = node1.application.localhost
 
 [ req_ext ]
 subjectAltName = @alt_names
 
+# The nodes only: the app runs elsewhere, under its own certificate. Each node is
+# a name under the app's host (application.localhost), which is what lets the
+# app's data cookie reach it.
 [ alt_names ]
-DNS.1 = application.localhost
-DNS.2 = node1.localhost
-DNS.3 = node2.localhost
+DNS.1 = node1.application.localhost
+DNS.2 = node2.application.localhost

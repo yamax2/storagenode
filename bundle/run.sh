@@ -12,16 +12,12 @@
 
 set -eu
 
+# Absolute paths throughout: a boot hook runs with an arbitrary working
+# directory. There is no key to generate on first boot: the node holds no secret,
+# it checks every token and the data cookie against the app's JWKS
+# (conf/storagenode.conf), so nothing here needs openssl.
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-mkdir -p "$DIR/tmp" "$DIR/logs" "$DIR/data/files" "$DIR/data/cache" "$DIR/conf/keys"
-
-# generating keys. Absolute paths throughout: a boot hook runs with an
-# arbitrary working directory, and no 'exec' -- that would replace this shell
-# and nginx would never be reached on the run that creates the keys.
-if [ ! -f "$DIR/conf/keys/node.pem" ]; then
-  openssl genrsa -out "$DIR/conf/keys/node.pem" 2048
-  "$DIR/jwks.sh" "$DIR/conf/keys/node.pem" > "$DIR/conf/keys/node.jwks"
-fi
+mkdir -p "$DIR/tmp" "$DIR/logs" "$DIR/data/files" "$DIR/data/cache"
 
 # start. The binary's PT_INTERP is /lib/ld-musl-armhf.so.1, which exists on
 # Alpine but not on appliance firmware, and the kernel resolves it before any
