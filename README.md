@@ -246,18 +246,27 @@ therefore on the path of every image:
 - The app's `Cache-Control: max-age` keeps it to one JWKS fetch per ten minutes
   (`proxy_cache_valid` being the fallback for an app that sends none), and
   `proxy_cache_lock` collapses a cold-cache burst into one fetch.
+- The app's `stale-while-revalidate` beside it is what answers the requests
+  arriving next to a refresh from the copy that has just expired, so an expiry
+  in the middle of a page of thumbnails is still one fetch. Past that window
+  each of them fetches for itself: the lock covers a cold cache, not an expired
+  entry.
 - `proxy_cache_use_stale` keeps reads going while the app is down, which only
   works because `proxy_cache_path` keeps an unread entry for a month
-  (`inactive=30d`) instead of nginx's ten minutes.
+  (`inactive=30d`) instead of nginx's ten minutes. It lists errors only, and
+  must not gain `updating`: that answers concurrent requests from the expired
+  copy however old it is, so beside the first read after a quiet night every
+  other image would be checked against keys from before the one its cookie was
+  signed with, and 401.
 - The subrequest passes none of the client's headers, nor an upload's body, on
   to the app. Above all not its `Accept-Encoding`: auth_jwt refuses a compressed
   key response, and an app that gzips JSON would do so once the key set grows.
 - The fetch verifies the app's certificate (`proxy_ssl_verify`): the key set
   decides every token and every data cookie on the node.
 
-It also means a new key reaches a node up to that `max-age` after the app
-publishes it, so the app must publish a key for longer than that before it signs
-with it.
+It also means a new key reaches a node up to `max-age` plus
+`stale-while-revalidate` after the app publishes it, so the app must publish a
+key for longer than that before it signs with it.
 
 # Setup
 
